@@ -51,6 +51,6 @@ Toma capturas a 390x844 y 1280x800, recorre el flujo (visor, tabs, interruptor, 
 
 ## Notas
 
-- `vercel.json` agrega `X-Robots-Tag: noindex` y el HTML lleva `<meta name="robots" content="noindex,nofollow">`.
+- Se publica en GitHub Pages con `.github/workflows/pages.yml` en cada push a `main`. El HTML lleva `<meta name="robots" content="noindex,nofollow">` y `robots.txt` bloquea indexación.
 - Este repo no se despliega automáticamente.
 - Stack: Vite, JavaScript vanilla, three, gsap (ScrollTrigger) y lenis, con versiones exactas en `package.json`.
