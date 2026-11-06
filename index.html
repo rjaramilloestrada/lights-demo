@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Vibing Lights Studio | Demo de IGNIS</title>
-  <meta name="description" content="Demo de IGNIS: así podría verse la tienda de Vibing Lights. Prueba la luz de Sunset y Aura en 3D antes de comprar y arma tu pedido en 1 minuto." />
+  <meta name="description" content="Demo de IGNIS: así podría verse la tienda de Vibing Lights. Prueba la luz de las 7 lámparas en 3D antes de comprar y arma tu pedido en 1 minuto." />
   <meta name="robots" content="noindex,nofollow" />
   <meta name="theme-color" content="#002DF8" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23002DF8'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23F60306'/%3E%3C/svg%3E" />
@@ -111,7 +111,7 @@
           <div class="room__dark" id="room-dark"></div>
         </div>
         <ol class="room__steps" id="room-steps">
-          <li data-step="0"><b>01</b><h3>Mira la luz antes de comprar</h3><p>Enciende Sunset o Aura en un cuarto de prueba y mueve el ángulo. Ves el efecto antes de decidir.</p></li>
+          <li data-step="0"><b>01</b><h3>Mira la luz antes de comprar</h3><p>Enciende cualquiera de las 7 lámparas en un cuarto de prueba y mira cómo cambia la luz. Ves el efecto antes de decidir.</p></li>
           <li data-step="1"><b>02</b><h3>Elige tu vibe</h3><p>Cálida, neutra o fría. Roja, naranja o azul. Tú decides cómo se siente tu espacio.</p></li>
           <li data-step="2"><b>03</b><h3>Pide en 1 minuto</h3><p>Armas tu pedido aquí y lo mandas por WhatsApp. Sin registros ni formularios largos.</p></li>
         </ol>
@@ -124,13 +124,14 @@
       <div class="section__head">
         <p class="eyebrow">Visor 3D</p>
         <h2 class="section__title" id="try-title">Prueba <span class="t-outline">la luz</span></h2>
-        <p class="section__lead section__lead--light">Enciende la lámpara en un cuarto de prueba y mueve el ángulo del proyector. Gira el cuarto con el dedo o el mouse.</p>
+        <p class="section__lead section__lead--light">Elige una de las 7 lámparas, enciéndela en un cuarto de prueba y mira cómo se ve su luz. Gira el cuarto con el dedo o el mouse.</p>
       </div>
 
       <div class="viewer" id="viewer">
-        <div class="viewer__tabs" role="tablist" aria-label="Elige la lámpara">
-          <button class="tab is-active" role="tab" aria-selected="true" data-lamp="sunset" id="tab-sunset">Sunset</button>
-          <button class="tab" role="tab" aria-selected="false" data-lamp="aura" id="tab-aura">Aura</button>
+        <div class="viewer__rail" id="viewer-rail">
+          <button class="rail__arrow rail__arrow--prev" id="rail-prev" type="button" aria-label="Lámpara anterior"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+          <div class="viewer__tabs" id="viewer-tabs" role="tablist" aria-label="Elige la lámpara"></div>
+          <button class="rail__arrow rail__arrow--next" id="rail-next" type="button" aria-label="Lámpara siguiente"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
         </div>
 
         <div class="viewer__stage" id="viewer-stage">
@@ -139,6 +140,7 @@
           <div class="viewer__loading" id="viewer-loading"><span class="spinner"></span><em>Cargando el cuarto 3D</em></div>
           <div class="viewer__fallback" id="viewer-fallback" hidden>Tu dispositivo no puede mostrar el visor 3D. Te dejamos la foto de la lámpara.</div>
           <span class="viewer__approx">Representación aproximada</span>
+          <button class="viewer__mode" id="viewer-mode" type="button" aria-pressed="false" aria-label="Cambiar a cuarto de día"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg><span>Cuarto de noche</span></button>
           <span class="viewer__hint" id="viewer-hint"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M8 8l-4 4 4 4M16 8l4 4-4 4"/></svg>Desliza para girar</span>
         </div>
 
@@ -152,9 +154,33 @@
             <span class="switch__track"><span class="switch__thumb"></span></span>
             <span class="switch__label" id="viewer-switch-label">Encender</span>
           </label>
-          <div class="slider">
-            <label for="viewer-angle">Ángulo del proyector <output id="viewer-angle-out">45°</output></label>
-            <input type="range" id="viewer-angle" min="15" max="75" value="45" step="1" />
+          <div class="viewer__ctl" id="viewer-ctl">
+            <div class="slider ctl" data-ctl="angle">
+              <label for="viewer-angle">Ángulo del proyector <output id="viewer-angle-out">45°</output></label>
+              <input type="range" id="viewer-angle" min="15" max="75" value="45" step="1" />
+            </div>
+            <div class="slider ctl" data-ctl="dimmer" hidden>
+              <label for="viewer-dim">Intensidad <output id="viewer-dim-out">85%</output></label>
+              <input type="range" id="viewer-dim" min="15" max="100" value="85" step="1" />
+            </div>
+            <fieldset class="ctl" data-ctl="temp" hidden>
+              <legend>Iluminación</legend>
+              <div class="vopts" id="opts-temp"></div>
+            </fieldset>
+            <fieldset class="ctl" data-ctl="lavaColor" hidden>
+              <legend>Color</legend>
+              <div class="vopts" id="opts-lava"></div>
+            </fieldset>
+            <fieldset class="ctl" data-ctl="waterColor" hidden>
+              <legend>Color de la luz</legend>
+              <div class="vopts vopts--sw" id="opts-water"></div>
+              <p class="ctl__note">Colores de ejemplo. La lámpara real trae +16 colores.</p>
+            </fieldset>
+            <fieldset class="ctl" data-ctl="fungiBody" hidden>
+              <legend>Color del cuerpo</legend>
+              <div class="vopts" id="opts-body"></div>
+              <p class="ctl__note">Solo es referencia visual. Los colores disponibles los confirmas con Vibing Lights por WhatsApp.</p>
+            </fieldset>
           </div>
           <button class="btn btn--red viewer__add" id="viewer-add" type="button">Agregar al pedido · $17</button>
         </div>

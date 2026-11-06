@@ -19,9 +19,7 @@ function cardHTML(p) {
         .map((e) => `<img src="${img(e)}" alt="" width="44" height="44" loading="lazy" />`)
         .join('')}</div><span>Ejemplos de colores</span></div>`
     : '';
-  const view3d = p.viewer
-    ? `<button class="btn btn--ghost" type="button" data-view3d="${p.id}">Verla en 3D</button>`
-    : '';
+  const view3d = `<button class="btn btn--ghost" type="button" data-view3d="${p.id}">Verla en 3D</button>`;
   return `
   <article class="card" id="card-${p.id}" data-id="${p.id}" style="--glow:${first ? first.glow : p.glow}">
     <div class="card__media">
@@ -66,7 +64,10 @@ export function initCatalog({ onShow3D }) {
       return;
     }
     const v3 = e.target.closest('[data-view3d]');
-    if (v3) onShow3D(v3.dataset.view3d);
+    if (v3) {
+      const checked = v3.closest('.card').querySelector('input[type=radio]:checked');
+      onShow3D(v3.dataset.view3d, checked ? checked.value : '');
+    }
     if (e.target.closest('[data-open-cart]')) document.dispatchEvent(new CustomEvent('open-cart'));
   });
 

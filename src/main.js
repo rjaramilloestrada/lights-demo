@@ -63,8 +63,8 @@ const viewer = initViewerUI({
   fly: (imgEl, target) => document.dispatchEvent(new CustomEvent('fly', { detail: { imgEl, target } })),
 });
 initCatalog({
-  onShow3D: (id) => {
-    viewer.show(id);
+  onShow3D: (id, variant) => {
+    viewer.show(id, variant);
     scrollTo('#prueba', -(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 0) + 1);
   },
 });

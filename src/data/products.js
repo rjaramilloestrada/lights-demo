@@ -14,8 +14,8 @@ export const PRODUCTS = [
     glow: '#ff8a1f', pos: '45% 70%',
     variants: { label: 'Iluminación', options: TRES },
   },
-  { id: 'sunset', name: 'Sunset Lamp', price: 17, tag: 'Lámpara tipo atardecer', glow: '#ff7a14', pos: '50% 60%', viewer: true },
-  { id: 'aura', name: 'Aura Lamp', price: 17, tag: 'Lámpara tonos galaxia', glow: '#a45cff', pos: '50% 55%', viewer: true },
+  { id: 'sunset', name: 'Sunset Lamp', price: 17, tag: 'Lámpara tipo atardecer', glow: '#ff7a14', pos: '50% 60%' },
+  { id: 'aura', name: 'Aura Lamp', price: 17, tag: 'Lámpara tonos galaxia', glow: '#a45cff', pos: '50% 55%' },
   {
     id: 'water', name: 'Water Lamp', price: 21, tag: '+16 colores', glow: '#ff9a3c', pos: '50% 75%',
     examples: ['water-v1', 'water-v2', 'water-v3'],

@@ -1,127 +1,33 @@
 // Visor 3D "Prueba la luz". Se carga con import() dinámico (ver src/viewer-ui.js).
-// Cuarto low-poly + lámpara Sunset / Aura + halo proyectado en la pared (ShaderMaterial).
+// Núcleo: cuarto low-poly, cámara/órbita, luces base, polvo y loop con render bajo demanda.
+// Cada lámpara vive en un "kit" (src/three/lamps/*) que se crea la primera vez que se elige.
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, ACESFilmicToneMapping, SRGBColorSpace,
   Group, Mesh, BoxGeometry, PlaneGeometry, CylinderGeometry, ConeGeometry, OctahedronGeometry,
-  SphereGeometry, CircleGeometry, TubeGeometry, CatmullRomCurve3, Vector3, MathUtils,
-  MeshStandardMaterial, MeshBasicMaterial, ShaderMaterial, AdditiveBlending, NormalBlending, DoubleSide,
-  HemisphereLight, DirectionalLight, SpotLight, PointLight, Sprite, SpriteMaterial, CanvasTexture,
+  SphereGeometry, CircleGeometry, Vector3, MathUtils, MeshStandardMaterial, MeshBasicMaterial, AdditiveBlending,
+  HemisphereLight, DirectionalLight, SpotLight, PointLight,
   Points, BufferGeometry, Float32BufferAttribute, PointsMaterial,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { WALL_Z, TABLE_TOP, LAMP_POS, std, glowTexture, shadowTexture, poolTexture, posterTexture, makeEnv } from './common.js';
+import { createProjector } from './lamps/projector.js';
+import { createWater } from './lamps/water.js';
+import { createLava } from './lamps/lava.js';
+import { createGlow } from './lamps/glow.js';
 
-const WALL_Z = -1.6;
-const TABLE_TOP = 0.62;
-const LAMP_POS = new Vector3(0.22, TABLE_TOP, -1.2);
-const HALO_R = 1.0; // radio del halo en metros
-
-const PALETTES = {
-  sunset: {
-    stops: ['#ffe27a', '#ffc23a', '#ff8f1a', '#f4521b', '#c4122f', '#5e0a52'],
-    light: '#ff8a2a', glow: '#ffa040', bands: 0, gain: 1,
-  },
-  aura: {
-    stops: ['#00f0b0', '#00b4ec', '#3a5cff', '#9438ff', '#ff3aa8', '#ff6a5a'],
-    light: '#a470ff', glow: '#b78cff', bands: 1, gain: 0.72,
-  },
+const FACTORY = { projector: createProjector, water: createWater, lava: createLava, glow: createGlow };
+// encuadre por lámpara: k acerca la cámara (ancho), v = alto mínimo visible en metros, (tx, ty) = punto al que mira
+const FOCUS = {
+  sunset: { k: 1, v: 0, tx: 0.12, ty: 1.12 }, aura: { k: 1, v: 0, tx: 0.12, ty: 1.12 },
+  mushroom: { k: 0.27, v: 0.66, tx: 0.2, ty: 0.89 }, water: { k: 0.27, v: 0.66, tx: 0.2, ty: 0.92 }, lava: { k: 0.3, v: 0.92, tx: 0.2, ty: 0.99 },
+  donut: { k: 0.34, v: 0.82, tx: 0.2, ty: 0.94 }, fungi: { k: 0.28, v: 0.74, tx: 0.2, ty: 0.92 },
 };
+const KIT_OF = { sunset: 'projector', aura: 'projector', water: 'water', lava: 'lava', mushroom: 'glow', donut: 'glow', fungi: 'glow' };
 
-const HALO_VERT = /* glsl */ `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`;
+const NIGHT = { hemiSky: new Color(0x4b5a9a), hemiGround: new Color(0x20141c), clear: new Color(0x07070c) };
+const DAY = { hemiSky: new Color(0xfff1e0), hemiGround: new Color(0x8b7b70), clear: new Color(0x2a2638) };
 
-const HALO_FRAG = /* glsl */ `
-uniform vec3 uC[6];
-uniform float uIntensity;
-uniform float uTime;
-uniform float uBands;
-varying vec2 vUv;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-void main() {
-  vec2 p = (vUv - 0.5) * 2.0;
-  float t = length(p) / 0.5;            // t = 1 en el borde del halo
-  float x = clamp(t, 0.0, 1.0) * 5.0;
-  int i = int(min(floor(x), 4.0));
-  float f = smoothstep(0.0, 1.0, x - float(i));
-  vec3 col = mix(uC[i], uC[i + 1], f);
-  float body = 1.0 - smoothstep(0.80, 1.0, t);
-  float tail = 0.26 * exp(-max(t - 0.82, 0.0) * 3.2) * (1.0 - smoothstep(1.7, 2.0, t));
-  float a = max(body, tail * step(0.5, t));
-  a *= 0.82 + 0.18 * (1.0 - t * 0.6);
-  float rings = 1.0 + uBands * 0.10 * sin(t * 22.0 - uTime * 0.7);
-  float core = 1.0 + 0.16 * (1.0 - smoothstep(0.0, 0.5, t));
-  col *= rings * core;
-  float n = (hash(gl_FragCoord.xy + uTime) - 0.5) / 120.0;
-  gl_FragColor = vec4(col * uIntensity + n, clamp(a * min(uIntensity, 1.0), 0.0, 1.0));
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}`;
-
-const BEAM_VERT = /* glsl */ `
-varying vec3 vN; varying vec3 vP; varying float vT;
-void main() {
-  vT = uv.y;
-  vN = normalize(normalMatrix * normal);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vP = mv.xyz;
-  gl_Position = projectionMatrix * mv;
-}`;
-const BEAM_FRAG = /* glsl */ `
-uniform vec3 uColor; uniform float uOpacity;
-varying vec3 vN; varying vec3 vP; varying float vT;
-void main() {
-  float fres = pow(abs(dot(normalize(vN), normalize(-vP))), 1.6);
-  float a = uOpacity * fres * mix(0.55, 0.12, vT);
-  gl_FragColor = vec4(uColor, a);
-}`;
-
-function glowTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.25, 'rgba(255,255,255,0.45)');
-  grd.addColorStop(0.6, 'rgba(255,255,255,0.1)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 128, 128);
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  return t;
-}
-
-function shadowTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 64);
-  grd.addColorStop(0, 'rgba(0,0,0,0.85)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 128, 128);
-  return new CanvasTexture(c);
-}
-
-function posterTexture() {
-  const c = document.createElement('canvas');
-  c.width = 192; c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#e9dcc6'; g.fillRect(0, 0, 192, 256);
-  g.fillStyle = '#d9633b'; g.beginPath(); g.arc(96, 104, 52, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#1f2b4d'; g.beginPath(); g.moveTo(0, 256); g.lineTo(0, 170); g.lineTo(70, 140); g.lineTo(130, 180); g.lineTo(192, 150); g.lineTo(192, 256); g.fill();
-  g.fillStyle = '#3d5a80'; g.beginPath(); g.moveTo(0, 256); g.lineTo(0, 210); g.lineTo(80, 190); g.lineTo(192, 220); g.lineTo(192, 256); g.fill();
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  return t;
-}
-
-const std = (color, o = {}) => new MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, flatShading: true, ...o });
-
-export async function createViewer({ host, reduced = false, lamp = 'sunset', on = false, angle = 45 }) {
+export async function createViewer({ host, reduced = false, lamp = 'sunset', on = false, angle = 45, variants = {}, dim = 0.85 }) {
   const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   if (!renderer.getContext()) throw new Error('webgl');
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -129,6 +35,7 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.setClearColor(0x07070c, 1);
   host.appendChild(renderer.domElement);
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
   const scene = new Scene();
   scene.fog = new Fog(0x07070c, 6, 13);
@@ -149,6 +56,11 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   sideWall.rotation.y = Math.PI / 2;
   sideWall.position.set(-2.3, 1.7, 1.9);
   room.add(sideWall);
+
+  const ceiling = new Mesh(new PlaneGeometry(12, 9), std('#2b2542', { roughness: 1, flatShading: false }));
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.set(0, 3.4, 1.2);
+  room.add(ceiling);
 
   const floor = new Mesh(new PlaneGeometry(12, 9), std('#5a4034', { roughness: 0.85, flatShading: false }));
   floor.rotation.x = -Math.PI / 2;
@@ -257,54 +169,7 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   addShadow(0.2, -1.2, 1.5, 1.0, 0.8);
   addShadow(-0.95, -1.15, 0.7, 0.7, 0.8);
 
-  // ---------- Lámparas ----------
-  const blackMat = new MeshStandardMaterial({ color: '#0c0c10', roughness: 0.38, metalness: 0.55, flatShading: false });
-  const lampGroup = new Group();
-  lampGroup.position.copy(LAMP_POS);
-  scene.add(lampGroup);
-  const lensMat = new MeshBasicMaterial({ color: '#2a1a10', toneMapped: false });
-  const lensMat2 = new MeshBasicMaterial({ color: '#1a1030', toneMapped: false });
-
-  // Sunset: cabeza cuadrada negra en soporte
-  const sunset = new Group();
-  const sBase = new Mesh(new CylinderGeometry(0.06, 0.07, 0.018, 20), blackMat);
-  sBase.position.y = 0.009;
-  const sStem = new Mesh(new CylinderGeometry(0.008, 0.008, 0.17, 8), blackMat);
-  sStem.position.y = 0.1;
-  const sHinge = new Mesh(new CylinderGeometry(0.014, 0.014, 0.05, 10), blackMat);
-  sHinge.rotation.z = Math.PI / 2;
-  sHinge.position.y = 0.185;
-  const sHeadPivot = new Group();
-  sHeadPivot.position.set(0, 0.185, 0);
-  const sHead = new Mesh(new BoxGeometry(0.1, 0.1, 0.05), blackMat);
-  sHead.position.z = -0.015;
-  const sLens = new Mesh(new CylinderGeometry(0.03, 0.03, 0.006, 20), lensMat);
-  sLens.rotation.x = Math.PI / 2;
-  sLens.position.z = -0.042;
-  sHeadPivot.add(sHead, sLens);
-  sunset.add(sBase, sStem, sHinge, sHeadPivot);
-
-  // Aura: cabeza redonda negra en cuello de cisne y base redonda
-  const aura = new Group();
-  const aBase = new Mesh(new CylinderGeometry(0.075, 0.085, 0.018, 28), blackMat);
-  aBase.position.y = 0.009;
-  const curve = new CatmullRomCurve3([
-    new Vector3(0, 0.01, 0), new Vector3(0, 0.07, 0.012), new Vector3(0, 0.14, -0.012), new Vector3(0, 0.2, 0.004), new Vector3(0, 0.25, -0.02),
-  ]);
-  const aNeck = new Mesh(new TubeGeometry(curve, 28, 0.0085, 8, false), blackMat);
-  const aHeadPivot = new Group();
-  aHeadPivot.position.set(0, 0.255, -0.02);
-  const aHead = new Mesh(new CylinderGeometry(0.068, 0.068, 0.016, 32), blackMat);
-  aHead.rotation.x = -Math.PI / 2;
-  const aLens = new Mesh(new CylinderGeometry(0.045, 0.045, 0.004, 28), lensMat2);
-  aLens.rotation.x = -Math.PI / 2;
-  aLens.position.z = -0.0095;
-  aHeadPivot.add(aHead, aLens);
-  aura.add(aBase, aNeck, aHeadPivot);
-
-  lampGroup.add(sunset, aura);
-
-  // ---------- Luces ----------
+  // ---------- Luces compartidas (cantidad fija: evita recompilar shaders al cambiar de lámpara) ----------
   const hemi = new HemisphereLight(0x4b5a9a, 0x20141c, 0.85);
   scene.add(hemi);
   const moon = new DirectionalLight(0x7f95e8, 0.55);
@@ -315,49 +180,16 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   const bulb = new PointLight(0xff8a2a, 0, 3.2, 1.6);
   scene.add(bulb);
 
-  // halo en la pared
-  const palCols = Array.from({ length: 6 }, () => new Color());
-  const haloMat = new ShaderMaterial({
-    uniforms: {
-      uC: { value: palCols },
-      uIntensity: { value: 0 },
-      uTime: { value: 0 },
-      uBands: { value: 0 },
-    },
-    vertexShader: HALO_VERT,
-    fragmentShader: HALO_FRAG,
-    transparent: true,
-    depthWrite: false,
-    blending: AdditiveBlending,
-  });
-  const halo = new Mesh(new PlaneGeometry(4, 4), haloMat);
-  halo.position.set(LAMP_POS.x, 1.6, WALL_Z + 0.006);
-  halo.renderOrder = 2;
-  scene.add(halo);
+  // ---------- Lámparas ----------
+  const lampGroup = new Group();
+  lampGroup.position.copy(LAMP_POS);
+  scene.add(lampGroup);
 
-  // haz volumétrico falso
-  const beamGeo = new CylinderGeometry(1, 0.035, 1, 40, 1, true);
-  beamGeo.rotateX(Math.PI / 2);
-  beamGeo.translate(0, 0, 0.5);
-  const beamMat = new ShaderMaterial({
-    uniforms: { uColor: { value: new Color('#ff9a40') }, uOpacity: { value: 0 } },
-    vertexShader: BEAM_VERT, fragmentShader: BEAM_FRAG,
-    transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
-  });
-  const beam = new Mesh(beamGeo, beamMat);
-  beam.renderOrder = 3;
-  scene.add(beam);
-
-  // brillo tipo bloom con sprites aditivos
   const gTex = glowTexture();
-  const mkSprite = (size) => {
-    const s = new Sprite(new SpriteMaterial({ map: gTex, color: 0xffffff, transparent: true, depthWrite: false, blending: AdditiveBlending, opacity: 0 }));
-    s.scale.set(size, size, 1);
-    s.renderOrder = 4;
-    scene.add(s);
-    return s;
-  };
-  const lensGlow = mkSprite(0.45);
+  const pTex = poolTexture();
+  const env = makeEnv(renderer);
+  const ctx = { scene, camera, renderer, reduced, env, glowTex: gTex, poolTex: pTex, lampPos: LAMP_POS, lights: { hemi, moon, spot, bulb } };
+  const kits = {};
 
   // polvo en suspensión
   const N = 70;
@@ -391,28 +223,41 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
 
   // ---------- Estado ----------
   const S = {
-    lamp, on, angle, level: 0, swap: 1, visible: true, running: false, raf: 0, last: 0, t: 0, dirty: true,
-    pal: PALETTES[lamp].stops.map((h) => new Color(h)),
-    lightCol: new Color(PALETTES[lamp].light),
-    glowCol: new Color(PALETTES[lamp].glow),
-    bands: PALETTES[lamp].bands,
-    gain: PALETTES[lamp].gain,
+    lamp, on, angle, dim, level: 0, swap: 1, flash: 0, amb: 0, ambGoal: 0, visible: true, running: false, raf: 0, last: 0, t: 0, dirty: true,
+    variants: { temp: 'calida', lavaColor: 'rojo', waterColor: 'ambar', fungiBody: 'blanco', ...variants },
+    kit: null, fps: { n: 0, acc: 0, done: false }, w: 1, h: 1,
+    focus: { ...FOCUS.sunset }, focusT: { ...FOCUS.sunset },
   };
-  const tmp = new Color();
-  const headWorld = new Vector3();
-  const haloCenter = new Vector3();
+  const st = { L: 0, level: 0, amb: 0, t: 0 };
+
+  function getKit(id) {
+    const name = KIT_OF[id];
+    if (!kits[name]) {
+      const k = FACTORY[name](ctx);
+      k.root.visible = false;
+      k.world.visible = false;
+      lampGroup.add(k.root);
+      scene.add(k.world);
+      Object.entries(S.variants).forEach(([key, val]) => k.setVariant(key, val));
+      kits[name] = k;
+    }
+    return kits[name];
+  }
 
   function fitCamera(w, h) {
     const aspect = w / h;
     camera.aspect = aspect;
     camera.fov = 38;
     camera.updateProjectionMatrix();
-    const span = aspect < 1 ? 2.3 : aspect < 1.4 ? 2.8 : 3.3;
-    const dist = span / 2 / (Math.tan(MathUtils.degToRad(camera.fov / 2)) * aspect);
+    const f = S.focus;
+    const span = (aspect < 1 ? 2.3 : aspect < 1.4 ? 2.8 : 3.3) * f.k;
+    const tanH = Math.tan(MathUtils.degToRad(camera.fov / 2));
+    const dist = Math.max(span / 2 / (tanH * aspect), f.v / 2 / tanH);
+    target.set(f.tx, f.ty, -1.2);
     const az = 0.2, pol = 1.4;
-    const prev = controls.getDistance ? controls.getDistance() : dist;
-    // conserva el giro actual del usuario si ya existe, solo ajusta la distancia
+    // conserva el giro actual del usuario si ya existe, solo ajusta distancia y objetivo
     const dir = camera.position.clone().sub(controls.target);
+    controls.target.copy(target);
     if (dir.lengthSq() < 0.01 || !S.fitted) {
       camera.position.set(
         target.x + dist * Math.sin(pol) * Math.sin(az),
@@ -426,12 +271,17 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
     S.fitted = true;
     controls.minDistance = controls.maxDistance = dist;
     controls.update();
-    return prev;
   }
 
+  function pixelRatio() {
+    let pr = Math.min(window.devicePixelRatio || 1, 2);
+    if (coarse && S.kit && S.kit.animated && S.kit.id !== 'projector') pr = Math.min(pr, S.fps.done ? 1 : 1.5);
+    return pr;
+  }
   function resize() {
     const w = Math.max(host.clientWidth, 1), h = Math.max(host.clientHeight, 1);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    S.w = w; S.h = h;
+    renderer.setPixelRatio(pixelRatio());
     renderer.setSize(w, h, false);
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
@@ -441,83 +291,36 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   const ro = new ResizeObserver(resize);
   ro.observe(host);
 
-  function applyLamp() {
-    sunset.visible = S.lamp === 'sunset';
-    aura.visible = S.lamp === 'aura';
-    haloMat.uniforms.uBands.value = S.bands;
-  }
-  function headObject() { return S.lamp === 'sunset' ? sHeadPivot : aHeadPivot; }
-
-  function applyAngle() {
-    const rad = MathUtils.degToRad(S.angle);
-    sHeadPivot.rotation.x = rad;
-    aHeadPivot.rotation.x = rad;
-    lampGroup.updateMatrixWorld(true);
-    const head = headObject();
-    head.getWorldPosition(headWorld);
-    const d = headWorld.z - WALL_Z;
-    const cy = headWorld.y + d * Math.tan(rad);
-    haloCenter.set(headWorld.x, Math.min(cy, 2.95), WALL_Z);
-    halo.position.set(haloCenter.x, haloCenter.y, WALL_Z + 0.006);
-    const stretch = 1 + (S.angle - 15) / 60 * 0.22;
-    halo.scale.set(HALO_R, HALO_R * stretch, 1);
-    spot.position.copy(headWorld);
-    spot.target.position.copy(haloCenter);
-    spot.target.updateMatrixWorld();
-    bulb.position.copy(headWorld).add(new Vector3(0, 0.08, 0.1));
-    // haz: del cabezal al centro del halo
-    const len = headWorld.distanceTo(haloCenter);
-    beam.position.copy(headWorld);
-    beam.lookAt(haloCenter);
-    beam.scale.set(0.2, 0.2, len * 0.8);
-    // brillo del lente
-    const front = new Vector3(0, 0, -0.045).applyMatrix4(head.matrixWorld);
-    lensGlow.position.copy(front);
-    S.dirty = true;
-  }
-
-  function applyLevel() {
-    const L = S.level;
-    const on_ = L > 0.002;
-    haloMat.uniforms.uIntensity.value = L * 0.95 * S.gain;
-    halo.visible = on_;
-    lensGlow.visible = on_;
-    lensGlow.material.opacity = 0.95 * L;
-    lensGlow.material.color.copy(S.glowCol);
-    beam.visible = on_;
-    beamMat.uniforms.uOpacity.value = 0.55 * L;
-    beamMat.uniforms.uColor.value.copy(S.glowCol);
-    spot.intensity = 7.5 * L;
-    spot.color.copy(S.lightCol);
-    bulb.intensity = 1.5 * L;
-    bulb.color.copy(S.lightCol);
-    dustMat.opacity = 0.75 * L;
-    dustMat.color.copy(S.glowCol);
-    hemi.intensity = 0.85 - 0.3 * L;
-    moon.intensity = 0.55 - 0.25 * L;
-    const lens = S.lamp === 'sunset' ? lensMat : lensMat2;
-    tmp.set(S.lamp === 'sunset' ? '#2a1a10' : '#1a1030');
-    lens.color.copy(tmp).lerp(S.glowCol.clone().multiplyScalar(1.6), L);
-    S.dirty = true;
-  }
-
   function setLampTarget(id) {
+    const kit = getKit(id);
+    if (S.kit && S.kit !== kit) { S.kit.root.visible = false; S.kit.world.visible = false; }
+    const prevLamp = S.lamp;
     S.lamp = id;
-    S.swap = reduced ? 1 : 0;
-    S.bands = PALETTES[id].bands;
-    S.palTarget = PALETTES[id].stops.map((h) => new Color(h));
-    S.lightTarget = new Color(PALETTES[id].light);
-    S.glowTarget = new Color(PALETTES[id].glow);
-    S.gainTarget = PALETTES[id].gain;
-    if (reduced) {
-      S.gain = S.gainTarget;
-      S.pal.forEach((c, i) => c.copy(S.palTarget[i]));
-      S.lightCol.copy(S.lightTarget);
-      S.glowCol.copy(S.glowTarget);
-    }
-    applyLamp();
-    applyAngle();
-    applyLevel();
+    S.kit = kit;
+    kit.root.visible = true;
+    kit.world.visible = true;
+    kit.setLamp(id);
+    kit.setAngle(S.angle);
+    if (id !== prevLamp || !S.started) { S.swap = reduced || !S.started ? 1 : 0; S.flash = reduced || !S.started ? 0 : 1; }
+    Object.assign(S.focusT, FOCUS[id]);
+    if (reduced || !S.started) { Object.assign(S.focus, S.focusT); fitCamera(S.w, S.h); }
+    S.started = true;
+    S.fps.n = 0; S.fps.acc = 0;
+    if (renderer.domElement.width) { renderer.setPixelRatio(pixelRatio()); renderer.setSize(host.clientWidth || 1, host.clientHeight || 1, false); }
+    S.dirty = true;
+  }
+
+  const tmpHemi = new Color();
+  function applyRoom() {
+    const a = S.amb;
+    hemi.color.copy(NIGHT.hemiSky).lerp(DAY.hemiSky, a);
+    hemi.groundColor.copy(NIGHT.hemiGround).lerp(DAY.hemiGround, a);
+    tmpHemi.copy(NIGHT.clear).lerp(DAY.clear, a);
+    renderer.setClearColor(tmpHemi, 1);
+    scene.fog.color.copy(tmpHemi);
+    const L = st.L;
+    hemi.intensity = MathUtils.lerp(0.85 - 0.3 * L, 2.1, a);
+    moon.intensity = MathUtils.lerp(0.55 - 0.25 * L, 1.7, a);
   }
 
   function step(dt) {
@@ -530,16 +333,10 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
       if (Math.abs(goal - S.level) <= 0.002) S.level = goal;
       changed = true;
     }
-    // transición de paleta
-    if (S.palTarget) {
-      const k = reduced ? 1 : 1 - Math.exp(-dt * 6);
-      let diff = 0;
-      S.pal.forEach((c, i) => { c.lerp(S.palTarget[i], k); diff += Math.abs(c.r - S.palTarget[i].r) + Math.abs(c.g - S.palTarget[i].g) + Math.abs(c.b - S.palTarget[i].b); });
-      S.lightCol.lerp(S.lightTarget, k);
-      S.glowCol.lerp(S.glowTarget, k);
-      S.gain += (S.gainTarget - S.gain) * k;
-      diff += Math.abs(S.gainTarget - S.gain);
-      if (diff < 0.002) { S.palTarget = null; S.gain = S.gainTarget; }
+    // modo día / noche del cuarto
+    if (Math.abs(S.ambGoal - S.amb) > 0.001) {
+      S.amb += (S.ambGoal - S.amb) * (reduced ? 1 : 1 - Math.exp(-dt * 5));
+      if (Math.abs(S.ambGoal - S.amb) <= 0.002) S.amb = S.ambGoal;
       changed = true;
     }
     if (S.swap < 1) {
@@ -549,12 +346,35 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
       lampGroup.position.y = LAMP_POS.y + (1 - e) * 0.04;
       changed = true;
     }
-    if (changed) {
-      for (let i = 0; i < 6; i++) palCols[i].copy(S.pal[i]);
-      applyLevel();
+    {
+      const f = S.focus, g = S.focusT;
+      const d = Math.abs(f.k - g.k) + Math.abs(f.v - g.v) + Math.abs(f.tx - g.tx) + Math.abs(f.ty - g.ty);
+      if (d > 0.0008) {
+        const k = reduced ? 1 : 1 - Math.exp(-dt * 4.5);
+        f.k += (g.k - f.k) * k; f.v += (g.v - f.v) * k; f.tx += (g.tx - f.tx) * k; f.ty += (g.ty - f.ty) * k;
+        fitCamera(S.w, S.h);
+        changed = true;
+      } else if (d > 0) { Object.assign(f, g); fitCamera(S.w, S.h); changed = true; }
     }
-    if (!reduced && S.level > 0.01) {
-      haloMat.uniforms.uTime.value = S.t;
+    if (S.flash > 0) {
+      S.flash = Math.max(0, S.flash - dt * 2.4);
+      renderer.toneMappingExposure = 1.1 + 0.4 * S.flash * S.flash;
+      changed = true;
+    }
+    const kit = S.kit;
+    const lit = S.level > 0.01;
+    const anim = !reduced && lit;
+    if (changed || anim || S.dirty) {
+      const L = kit.usesDim ? S.level * S.dim : S.level;
+      st.L = L; st.level = S.level; st.amb = S.amb; st.t = S.t;
+      spot.intensity = 0; bulb.intensity = 0; bulb.distance = 3.2; bulb.decay = 1.6;
+      if (kit.update(dt, S.t, st)) S.dirty = true;
+      applyRoom();
+      dustMat.opacity = kit.dustOpacity;
+      dustMat.color.copy(kit.dust);
+      S.dirty = true;
+    }
+    if (anim) {
       const p = dustGeo.attributes.position;
       for (let i = 0; i < N; i++) {
         p.array[i * 3 + 1] += Math.sin(S.t * 0.4 + dustSeed[i]) * 0.0006;
@@ -564,6 +384,7 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
       S.dirty = true;
     }
     if (controls.update()) S.dirty = true;
+    return anim;
   }
 
   function frame(now) {
@@ -571,8 +392,16 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
     if (!S.running) return;
     const dt = Math.min((now - (S.last || now)) / 1000, 0.1);
     S.last = now;
-    step(dt);
+    const anim = step(dt);
     if (S.dirty) { renderer.render(scene, camera); S.dirty = false; }
+    // si un kit animado va lento en móvil: baja calidad una sola vez
+    if (anim && coarse && S.kit.setQuality && !S.fps.done && dt > 0) {
+      S.fps.n++; S.fps.acc += dt;
+      if (S.fps.n >= 90) {
+        if (S.fps.acc / S.fps.n > 0.045) { S.fps.done = true; S.kit.setQuality(0); resize(); }
+        else { S.fps.n = 0; S.fps.acc = 0; }
+      }
+    }
     S.raf = requestAnimationFrame(frame);
   }
   function start() {
@@ -593,22 +422,31 @@ export async function createViewer({ host, reduced = false, lamp = 'sunset', on 
   // arranque
   S.on = on;
   S.level = on ? 1 : 0;
-  palCols.forEach((c, i) => c.copy(S.pal[i]));
   setLampTarget(lamp);
-  S.palTarget = null;
   resize();
+  step(0.016);
+  renderer.compile(scene, camera);
   renderer.render(scene, camera);
   start();
 
   return {
-    setLamp(id) { if (id !== S.lamp && PALETTES[id]) setLampTarget(id); },
+    setLamp(id) { if (id !== S.lamp && KIT_OF[id]) setLampTarget(id); },
     setOn(v) { S.on = !!v; S.dirty = true; },
-    setAngle(v) { S.angle = v; applyAngle(); },
-    getState() { return { lamp: S.lamp, on: S.on, level: S.level, angle: S.angle }; },
+    setAngle(v) { S.angle = v; S.kit.setAngle(v); S.dirty = true; },
+    setDim(v) { S.dim = v; S.dirty = true; },
+    setVariant(key, val) {
+      S.variants[key] = val;
+      Object.values(kits).forEach((k) => k.setVariant(key, val));
+      S.dirty = true;
+    },
+    setRoom(mode) { S.ambGoal = mode === 'day' ? 1 : 0; S.dirty = true; },
+    getState() { return { lamp: S.lamp, on: S.on, level: S.level, angle: S.angle, dim: S.dim, amb: S.amb, variants: { ...S.variants } }; },
     dispose() {
       stop(); ro.disconnect(); io.disconnect();
       document.removeEventListener('visibilitychange', syncRun);
       controls.dispose();
+      Object.values(kits).forEach((k) => k.dispose());
+      env.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },

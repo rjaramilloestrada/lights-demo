@@ -7,7 +7,14 @@ Qué incluye:
 
 - Intro "lights on" (saltable), hero cinético y marquee con las 7 lámparas.
 - Sección pinneada "Así cambia tu cuarto" (scroll-driven).
-- **Visor 3D "Prueba la luz"** (Three.js, carga diferida): cuarto low-poly con las lámparas Sunset y Aura, interruptor on/off, slider de ángulo y órbita limitada. Si el dispositivo no tiene WebGL se muestra la foto de la lámpara; con "reducir movimiento" no hay animaciones automáticas.
+- **Visor 3D "Prueba la luz"** (Three.js, carga diferida): cuarto low-poly donde se prueban **las 7 lámparas del catálogo**, cada una con su propia luz animada:
+  - Sunset y Aura: proyector con halo en la pared y slider de ángulo.
+  - Water: cáusticas de agua en movimiento sobre pared, techo y mesa, con 8 colores de ejemplo y ciclo (la lámpara real trae +16 colores).
+  - Lava: blobs de cera que suben y bajan dentro de la botella (Rojo, Naranja, Azul).
+  - Mushroom, Donut y Fungi: luz Cálida, Neutra o Fría con dimmer; en Fungi el color del cuerpo es solo referencia visual.
+  - Interruptor, órbita limitada, "Cuarto de noche / día", teclas ← → entre lámparas y recorrido automático hasta la primera interacción.
+  - Si el dispositivo no tiene WebGL se muestra la foto de la lámpara elegida; con "reducir movimiento" no hay animaciones automáticas.
+  - Código: núcleo en `src/three/viewer.js` y un "kit" por lámpara en `src/three/lamps/` (`projector`, `water`, `lava`, `glow`), creados la primera vez que se eligen. "Representación aproximada": es un modelo ilustrativo, no una foto.
 - Mini selector de vibe, catálogo de 7 lámparas con variantes exactas del PDF y carrito.
 - Pedido por WhatsApp (el mensaje se arma con ítems, variantes y total).
 
@@ -47,7 +54,7 @@ npm run build
 NODE_PATH=$(npm root -g) npm run test:e2e
 ```
 
-Toma capturas a 390x844 y 1280x800, recorre el flujo (visor, tabs, interruptor, slider, agregar, carrito, mensaje de WhatsApp) y falla si hay errores de consola.
+Toma capturas a 390x844 y 1280x800 (`SHOTS=/ruta` cambia la carpeta), recorre el flujo (visor con las 7 lámparas encendidas y apagadas, variantes de Water, Lava, Mushroom, Donut y Fungi, modo día, "Verla en 3D" desde el catálogo, agregar desde el visor, carrito, mensaje de WhatsApp, reduced-motion, sin WebGL) y falla si hay errores de consola.
 
 ## Notas
 
